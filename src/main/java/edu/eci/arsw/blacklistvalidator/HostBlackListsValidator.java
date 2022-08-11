@@ -6,6 +6,8 @@
 package edu.eci.arsw.blacklistvalidator;
 
 import edu.eci.arsw.spamkeywordsdatasource.HostBlacklistsDataSourceFacade;
+
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.logging.Level;
@@ -29,35 +31,32 @@ public class HostBlackListsValidator {
      * @param ipaddress suspicious host's IP address.
      * @return  Blacklists numbers where the given host's IP address was found.
      */
-    public List<Integer> checkHost(String ipaddress, int hilos){
-
+    public List<Integer> checkHost(String ipaddress, int hilos) throws InterruptedException {
+        ArrayList<ThreadingSearch> hilosbusqueda = new ArrayList<>();
         LinkedList<Integer> blackListOcurrences=new LinkedList<>();
-        
         int ocurrencesCount=0;
-        
-        HostBlacklistsDataSourceFacade skds=HostBlacklistsDataSourceFacade.getInstance();
-        
+        HostBlacklistsDataSourceFacade skds=new HostBlacklistsDataSourceFacade();
         int checkedListsCount=0;
+        int tamano = skds.getRegisteredServersCount()/hilos;
+        int primerserver;
+        int finalserver;
 
-        /**
-         * Acá la idea es crear un ciclo que dependiendo de la cantidad de threads nos permita dividir en varios threads la cantidad de servidores para realizar la busqueda,
-         * y hacer esta busqueda concurrente
-         */
-
-        for (int i=0;i<skds.getRegisteredServersCount() && ocurrencesCount<BLACK_LIST_ALARM_COUNT;i++){
-            checkedListsCount++;
-            
-            if (skds.isInBlackListServer(i, ipaddress)){
-                
-                blackListOcurrences.add(i);
-                
-                ocurrencesCount++;
-            }
+        for(int i =0; i<hilos; i++){
+            primerserver = tamano * i;
+            finalserver = tamano * (i+1);
+            hilosbusqueda.add(new ThreadingSearch(skds, primerserver, finalserver, ipaddress));
         }
 
+        for( ThreadingSearch hilo : hilosbusqueda){
+            hilo.start();
+        }
 
-
-
+        for(ThreadingSearch hilo : hilosbusqueda){
+            hilo.join();
+            ocurrencesCount += hilo.getOcurrencesCount();
+            checkedListsCount += hilo.getCheckedListsCount();
+            blackListOcurrences.addAll(hilo.getBlackListOcurrences());
+        }
         
         if (ocurrencesCount>=BLACK_LIST_ALARM_COUNT){
             skds.reportAsNotTrustworthy(ipaddress);
